@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CanBusVis</title>
+</head>
+<body>
+    <div id="canvas" style="text-align: center">
+        <svg width="2000" height="2000">
+            <g transform="translate(1000, 1000)"></g>
+        </svg>
+    </div>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src="https://d3js.org/d3-scale-chromatic.v0.3.min.js"></script>
+    <script>
+    d3.json("data/DoS.json", function (data) {
+        let devices = [];
+        data.forEach(function (block) { Object.keys(block).forEach(function (device) { if (!devices.includes(device)){devices.push(device)} }) });
+        let intervals = data.length;
+        let ring = [];
+        let circleLine = [];
+
+        let maxTrafficPerDeviceInBlock = 0;
+        let maxTrafficPerBlock = 0;
+        for(let i = 0; i<intervals; i++){
+            let blockSum = 0;
+            Object.keys(data[i]).forEach(function (device) {
+                let sum = data[i][device].reduce(function (p1, p2) { return p1+p2[1] },0);
+                blockSum += sum;
+                if(sum>maxTrafficPerDeviceInBlock){maxTrafficPerDeviceInBlock=sum}
+            });
+            if(maxTrafficPerBlock<blockSum){maxTrafficPerBlock=blockSum;}
+        }
+
+        let pallete = d3.scaleOrdinal(d3["schemeSet2"]);
+
+        for(let i = 0; i<intervals; i++) {
+            ring.push({
+                start:  2 * Math.PI / intervals * (i),
+                end:    2 * Math.PI / intervals * (i + 1),
+                innerR: 300, outerR: 310,
+                fill: "grey",
+                opacity: 0.9/intervals*(i+1),
+                stroke: "white",
+                strokeWidth: 5
+            });
+            let blockSum = 0;
+            devices.forEach(function (device, q) {
+                if(data[i][device].length>0){
+                    let barHeight = 0;
+                    if(i===5){console.log(data[i][device], device)}
+                    data[i][device].forEach(function (packetCount) {
+                        if(300 / maxTrafficPerDeviceInBlock * packetCount[1]>1){
+                            ring.push({
+                                start:  (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length * (q)),
+                                end:    (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length * (q + 1)),
+                                innerR: 311+barHeight,
+                                outerR: 311 + 300 / maxTrafficPerDeviceInBlock * packetCount[1] + barHeight,
+                                fill: pallete(q),
+                                opacity: 1,
+                                stroke: "white",
+                                strokeWidth: 1
+                            });
+                        }
+                        barHeight += 300 / maxTrafficPerDeviceInBlock * packetCount[1];
+                        blockSum+=packetCount[1];
+                    });
+
+                    ring.push({
+                        start:  (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length * (q)),
+                        end:    (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length * (q + 1)),
+                        innerR: 311+barHeight,
+                        outerR: 311 + barHeight+3,
+                        fill: "black",
+                        opacity: 1,
+                        stroke: "white",
+                        strokeWidth: 1
+                    });
+                }
+                ring.push({
+                    start:  (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length * (q)),
+                    end:    (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length * (q + 1)),
+                    innerR: 0,
+                    outerR: 611,
+                    fill: "grey",
+                    opacity: 0,
+                    number:q,
+                    stroke: "white",
+                    strokeWidth: 0
+                });
+            });
+            circleLine.push([(Math.PI*2/intervals*i)+(Math.PI*2/intervals)/2,100+200/maxTrafficPerBlock*blockSum]);
+        }
+
+
+        let arcGenerator = d3.arc()
+            .innerRadius(function (d) {
+                return d.innerR;
+            })
+            .outerRadius(function (d) {
+                return d.outerR;
+            })
+            .startAngle(function (d) {
+                return d.start;
+            })
+            .endAngle(function (d) {
+                return d.end;
+            });
+
+        let pointers = [];
+        for(let i = 0; i<intervals; i++){
+            pointers.push(
+                {
+                    start:  (2 * Math.PI / intervals * i),
+                    end:    (2 * Math.PI / intervals * i) + (2 * Math.PI / intervals / devices.length),
+                    innerR: 300,
+                    outerR: 310,
+                    fill: "red",
+                    opacity: 0.8
+                }
+            );
+        }
+        let point = d3.select('svg').append('g').attr('transform', 'translate(1000, 1000)').attr('id', 'pointer')
+            .selectAll('path')
+            .data(pointers)
+            .enter()
+            .append('path')
+            .style("fill", function (d) {
+                return d.fill;
+            })
+            .style("opacity", function (d) {
+                return d.opacity;
+            })
+            .attr('d', arcGenerator);
+
+        let previosAngle = 0;
+        let g = d3.select('g')
+            .selectAll('path')
+            .data(ring)
+            .enter()
+            .append('path')
+            .style("fill", function (d) {
+                return d.fill;
+            })
+            .style("opacity", function (d) {
+                return d.opacity;
+            })
+            .attr('d', arcGenerator)
+            .style("stroke", function (d) {
+                return d.stroke;
+            })
+            .style("stroke-width", function (d) {
+                return d.strokeWidth;
+            })
+            .on('click', function (d) {
+                point.style("transform", "rotate(" + 0 + "deg)")
+                previosAngle = 360 / intervals / devices.length * d.number;
+                d3.select('#pointer').transition().duration(500).attr("transform", "translate(1000,1000) rotate(" + previosAngle + ")")
+            });
+
+        circleLine.push(circleLine[0]);
+        let radialLineGenerator = d3.radialLine().curve(d3.curveCatmullRom);
+        let radialLine = radialLineGenerator(circleLine);
+        d3.select('g')
+            .append('path')
+            .style("fill", "none")
+            .style("stroke-width", 5)
+            .style("stroke", "#999")
+            .attr('d', radialLine);
+        circleLine = data.map(function (t, i) {return [Math.PI * 2 / intervals * i, 100]});
+        circleLine.push(circleLine[0]);
+        radialLine = radialLineGenerator(circleLine);
+        d3.select('g')
+            .append('path')
+            .style("fill", "none")
+            .style("stroke-width", 5)
+            .style("opacity", 0.3)
+            .style("stroke", "#999")
+            .style("stroke-dasharray", ("20, 10"))
+            .attr('d', radialLine);
+    });
+    </script>
+</body>
+</html>
